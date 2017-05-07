@@ -1,0 +1,135 @@
+#!/usr/bin/python
+# TODO : user a better runner compatible with venv
+
+"""
+A nice module to search your bash/zsh history
+"""
+
+
+from os import path
+import argparse
+from subprocess import Popen, PIPE, STDOUT
+
+
+def get_history(shell="zsh"):
+    """
+    Get the history
+    """
+    """
+    TODO: I think this method should also check for other possible histories
+    searching in zsh and bash and all of them at once, each on its format.
+    """
+    if shell == "zsh":
+        return get_history_zsh()
+    elif shell == "bash":
+        return get_history_bash()
+    else:
+        raise  NotImplemented("Sorry, no history for {0}".format( shell) )
+
+
+def realpath(somepath):
+    command = "cd {0};pwd".format(somepath)
+    event = Popen(command, shell=True, stdin=PIPE, stdout=PIPE,
+            stderr=STDOUT)
+    (output,rubbish) = event.communicate()
+    return output.strip()
+
+
+def get_history_zsh():
+#http://stackoverflow.com/questions/5460923/run-bash-built-in-commands-in-python
+    """
+    obtain it in a nasty way.
+    return a generator.
+    Still not working as the subprocess shell has no hist enabled.
+    """
+    home = "~"
+    with open(path.join(realpath(home),".zsh_history")) as fh:
+        for line in fh:
+            # In my standard zsh, the line is something like
+            # : 1476469014:0;brew search virtualenv
+            try:
+                yield line.split(";")[1]  # clean the line
+            except IndexError as e:
+                pass # is common to have some spare lines due to broken input.
+
+
+def get_history_bash():
+#http://stackoverflow.com/questions/5460923/run-bash-built-in-commands-in-python
+    """
+    obtain it in a nasty way.
+    return a generator.
+    """
+    shell_command = 'bash -i -c "history -r; history"'
+    event = Popen(shell_command, shell=True, stdin=PIPE, stdout=PIPE, 
+	stderr=STDOUT)
+    (output,rubbish) = event.communicate()
+    history = [x for x in output.split("\n") ]
+    for line in history:
+        yield line
+
+
+def pattern_check(lines, patterns, ignore_case = False):
+    """
+    get a generator. 
+    process the lines and apply a matching pattern
+    """
+    for index,line in enumerate(lines):
+        #print "checking",index
+        fail=False # We will use this flag to fail on the 1st miss
+        if ignore_case:  # if is case insensitive, set patterns to lowercase
+            old_pat = patterns
+            patterns = []
+            for pat in old_pat:
+                patterns.append(pat.lower())
+
+        for pattern in patterns:
+            if ignore_case: # If is not sensitive, compare the line with lower()
+                line = line.lower()
+            if pattern not in line:
+                fail = True
+                break # If one pattern fails, all fail
+        # And if all of them succeded, we return a line
+        if not fail:
+            yield line
+
+
+def quicktest():
+    #patterns = ["ssh"]
+    patterns = ["ssh","es","prod"]
+    hist = get_history()
+    results = pattern_check(hist, patterns)
+    dedup = list(set([ x for x in results]))
+    print "\n".join([ x for x in dedup])
+    print len( [ x for x in results] )
+
+
+def pretty_print(command_list):
+    """
+    prettify a list of commands
+    """
+    print "".join(sorted(command_list))
+
+
+if __name__=="__main__":
+    parser = argparse.ArgumentParser(
+            description ="search your bash/zsh history with multiple filters"
+            )
+
+    parser.add_argument("--verbose","-v", action="store_true", dest="verbose",
+            help="Verbose mode")
+
+    parser.add_argument("filters", metavar="filters", nargs="+",
+            help="the filters to apply to your history"
+            )
+
+    parser.add_argument("--insensitive","-i", action="store_true",
+            dest="insensitive", default=False, required=False,
+            help="Case Insensitive pattern matching")
+
+    args = parser.parse_args()
+    patterns = args.filters
+    history = get_history()
+    results = pattern_check(history, patterns, args.insensitive)
+    deduplicated = list(set( [ x for x in results] ))
+    pretty_print( deduplicated )
+
